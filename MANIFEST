@@ -1,3 +1,4 @@
+Changes
 lib/GMail/IMAPD.pm
 lib/GMail/IMAPD/Gmail_patched.pm
 lib/GMail/IMAPD/UserAgent_patched.pm

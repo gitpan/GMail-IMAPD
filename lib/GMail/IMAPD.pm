@@ -7,7 +7,7 @@ use GMail::IMAPD::Gmail_patched;
 use GMail::IMAPD::UserAgent_patched;
 use strict;
 
-our $VERSION = "0.91";
+our $VERSION = "0.92";
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = ();
@@ -615,8 +615,8 @@ GMail::IMAPD - An IMAP4 gateway to Google's webmail service
 
 =head1 DESCRIPTION
 
-Using the excellent L<Mail::Webmail::Gmail> module, this module allows users 
-to access a Gmail account with an IMAP client.
+This module allows users to access their Gmail account with an IMAP client
+by running a server which accepts IMAP connections.
 
 
 =head1 METHODS
@@ -642,29 +642,22 @@ Directly pass a handle to the module to process IMAP commands.
 =head1 NOTES
 
 The IMAP and Gmail models differ. How GMail::IMAPD translates these differences
-is mostly intuitive.  For instance, folders of course translate to labels.  
+is mostly intuitive.  For instance, folders translate to labels.  
 You can even have subfolders which translate to label names such as 
 'Work/NewProject'.  Some translations that aren't as intuitive are shown in the 
 table below:
 
-
-Copy message to folder -> Add label to message
-
-Move message from Inbox to folder -> Add label to message and archive
-
-Move message to Inbox -> Remove label and unarchive
-
-Delete message in Inbox -> Archive message
-
-Delete message in folder -> Remove message label
-
-Delete message in Trash -> Permanently delete message
+  - Copy message to folder -> Add label to message
+  - Move message from Inbox to folder -> Add label to message and archive
+  - Move message from folder to Inbox -> Remove label and unarchive
+  - Delete message in Inbox -> Archive message
+  - Delete message in folder -> Remove message label
+  - Delete message in Trash -> Permanently delete message
 
 
-
-Messages from other IMAP accounts can be appended to the Gmail INBOX, 
-and INBOX only.  The module achieves this by emailing the message 
-to the Gmail account.  Thus, the append procedure may be slow
+Messages from other IMAP accounts can be appended to the Gmail Inbox, 
+and Inbox only.  The module achieves this by emailing the message 
+to the Gmail account.  Therefore, the append procedure may be slow
 and the message will initially be marked unread.
 
 GMail::IMAPD is not fully IMAP4 compliant and has just enough
