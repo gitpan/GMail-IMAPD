@@ -7,7 +7,7 @@ use GMail::IMAPD::Gmail_patched;
 use GMail::IMAPD::UserAgent_patched;
 use strict;
 
-our $VERSION = "0.90";
+our $VERSION = "0.91";
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = ();
