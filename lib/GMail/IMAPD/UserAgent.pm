@@ -1,4 +1,4 @@
-package LWP::UserAgent;
+package GMail::IMAPD::UserAgent;
 
 # $Id: UserAgent.pm,v 2.32 2004/06/14 12:36:49 gisle Exp $
 

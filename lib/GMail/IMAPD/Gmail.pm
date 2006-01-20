@@ -1,9 +1,9 @@
-package Mail::Webmail::Gmail;
+package GMail::IMAPD::Gmail;
 
 use lib qw(lib);
 use strict;
 
-require LWP::UserAgent;
+require GMail::IMAPD::UserAgent;
 require HTTP::Headers;
 require HTTP::Cookies;
 require HTTP::Request::Common;
@@ -19,7 +19,7 @@ our @ISA = qw(Exporter);
 our @EXPORT_OK = ();
 our @EXPORT = ();
 
-our $USER_AGENT = "User-Agent: Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.7.8) Gecko/20050511 Firefox/1.0.4";
+our $USER_AGENT = "Mozilla/5.0 (Windows; U; Windows NT 5.1; en-US; rv:1.7.8) Gecko/20050511 Firefox/1.0.4";
 our $MAIL_URL = "http://mail.google.com/mail";
 our $SSL_MAIL_URL = "https://mail.google.com/mail";
 our $LOGIN_URL = "https://www.google.com/accounts/ServiceLoginBoxAuth?rm=false&continue=http://mail.google.com/mail/";
@@ -35,7 +35,7 @@ sub new {
     my $class = shift;
     my %args = @_;
 
-    my $ua = new LWP::UserAgent( agent => $USER_AGENT, keep_alive => 1);
+    my $ua = new GMail::IMAPD::UserAgent( agent => $USER_AGENT, keep_alive => 1);
     push( @LWP::Protocol::http::EXTRA_SOCK_OPTS, SendTE => 0 );
     
     my $self = bless {
@@ -106,15 +106,15 @@ sub login {
     if ( $res->is_success() ) {
         update_tokens( $self, $res );
         if ( $res->content() =~ /var url = "(.*?)";/ ) {
-            $req = HTTP::Request->new( GET => "https://www.google.com/accounts/$1" );
+            $req = HTTP::Request->new( GET => "$SSL_MAIL_URL/$1" );
             $req->header( 'Cookie' => $self->{_cookie} );
             $res = $self->{_ua}->request( $req );
             if ( $res->content() =~ /location.replace\("(.*?)"\)/ ) {
                 update_tokens( $self, $res );
-                $req = HTTP::Request->new( GET => $1 );
+                $req = HTTP::Request->new( GET => "$SSL_MAIL_URL/$1" );
                 $req->header( 'Cookie' => $self->{_cookie} );
                 $res = $self->{_ua}->request( $req );
-		if ( $res->content() =~ /<script src="(.*?)">/ ) {
+		if ( $res->content() =~ /js_version/ ) {
                     update_tokens( $self, $res );
                     if ( $self->{_proxy_enable} ) {
                         if ( $self->{_proxy_enable} >= 1 ) {
@@ -127,7 +127,7 @@ sub login {
                         }
                     }
                     $self->{_logged_in} = 1;
-                    $res = get_page( $self, start => '', search => '', view => '', req_url => $self->{_mail_url} . $1 );
+                    $res = get_page( $self, start => '', search => '', view => '', req_url => $self->{_mail_url} );
                     return( 1 );
                 } else {
                     $self->{_error} = 1;

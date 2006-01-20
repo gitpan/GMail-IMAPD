@@ -2,12 +2,10 @@ package GMail::IMAPD;
 
 use IO::Socket;
 use IO::File;
-use Data::Dumper;
-use GMail::IMAPD::Gmail_patched;
-use GMail::IMAPD::UserAgent_patched;
+use GMail::IMAPD::Gmail;
 use strict;
 
-our $VERSION = "0.92";
+our $VERSION = "0.93";
 
 our @ISA = qw(Exporter);
 our @EXPORT_OK = ();
@@ -26,8 +24,10 @@ sub new {
     LocalAddr   => $args{LocalAddr} || '0.0.0.0',
     LocalPort	=> $args{LocalPort} || 143,
     Debug       => $args{Debug}  || 0,
-    Detach      => 1,
+    Detach      => defined $args{Detach} ? $args{Detach} : 1,
     LogFile     => $args{LogFile},
+    CacheDBH    => $args{CacheDBH},
+    Socket      => $args{Socket},
     Peer	=> undef,
     Gmail       => {},
     User	=> '',
@@ -38,10 +38,8 @@ sub new {
     CopyFolder  => '',
     CmdID	=> '',
     CmdArgs     => '',
-    Socket	=> undef, 
-    Cache	=> undef,
+    Cache       => undef,
   };
-  if(defined $args{Detach} && $args{Detach} == 0){ $self->{Detach}=0 }
   bless($self, $class);   
   return $self;
 }
@@ -65,17 +63,17 @@ sub run { my($self)=@_;
   for(;;close($s)){ $s=$l->accept();
     if(!fork){
       exit unless defined $s;
+      $self->{Socket} = $s;
       $self->{Peer} = $s->peerhost; 
       $self->logit("Connect");
-      $self->procimap($s);
+      $self->procimap();
       close($s); exit;
     }
   }
 }
 
-sub procimap { my($self,$s)=@_;
+sub procimap { my($self)=@_;
   no strict 'refs';
-  $self->{Socket}=$s;
   $self->writesock('* OK localhost IMAP4rev1 v11.237 server ready');
   for(;;){
     my($cmdid,$cmd,$args)=split(' ',$self->readsock(),3);
@@ -89,6 +87,7 @@ sub procimap { my($self,$s)=@_;
       $self->logit("LOGOUT '$self->{User}'");
       $self->writesock("* BYE Logging out");
       $self->writesock("$cmdid OK Logout completed.");
+      untie %{$self->{Cache}} if $self->{CacheDBH};
       return;
     }
 
@@ -119,6 +118,7 @@ sub cmd_APPEND { my($self)=@_;
     $self->writesock("$self->{CmdID} BAD Warning: Messages Appended to Inbox");
   }
 }
+
 sub cmd_AUTHENTICATE { my($self)=@_;
   $self->writesock("+\r\n");
   my($junk,$user,$pass)=split(/\0/,$self->mdecode($self->readsock()));
@@ -274,10 +274,10 @@ sub cmd_LOGIN { my($self)=@_;
   $self->{CmdArgs}=~s/\"//g;
   my($user,$pass)=split(/\s+/,$self->{CmdArgs}); 
   $self->logit("LOGIN '$user'");
-  $self->{Gmail}=Mail::Webmail::Gmail->new(username => $user,
-                                           password => $pass,
-                                           timeout  => 10,
-                                           cookies  => {});
+  $self->{Gmail}=GMail::IMAPD::Gmail->new(username => $user,
+                                          password => $pass,
+                                          timeout  => 10,
+                                          cookies  => {});
   my $res=$self->{Gmail}->login;
   if($res == -1){
     $self->writesock("$self->{CmdID} NO Authentication failed.");
@@ -289,16 +289,15 @@ sub cmd_LOGIN { my($self)=@_;
   else{
     $self->{User}=$user;
     $self->{Folders}=[@FOLDERS,$self->{Gmail}->get_labels()];
+    if($self->{CacheDBH}){
+      require Tie::RDBM;
+      $self->logit("tieing cache to table $user",1);
+      tie %{$self->{Cache}},'Tie::RDBM',
+           {db=>$self->{CacheDBH},table=>$user,create=>1};
+      $self->{Cache}->{'seed'}=1; #create table
+    }
     $self->writesock("$self->{CmdID} OK Logged in.");
   }
-}
-
-sub cmd_LOGOUT { my($self)=@_;
-  $self->writesock("* BYE Logging out");
-  $self->writesock("$self->{CmdID} OK Logout completed.");
-  my $s=$self->{Socket};
-  close($s); 
-  exit;
 }
 
 sub cmd_LSUB { my($self)=@_;
@@ -574,7 +573,7 @@ sub sendemail { my($self,$from,$to,$msg)=@_;
 
 sub logit { my($self,$msg,$debug_level)=@_;
   $debug_level = 0 unless $debug_level;
-  return if $debug_level > $self->{Debug};
+  return unless $debug_level <= $self->{Debug};
   my $timestamp=scalar localtime(time);
   $msg="$self->{Peer}: $msg" if $self->{Peer};
   $msg="$timestamp: $msg\n"; 
@@ -625,14 +624,17 @@ by running a server which accepts IMAP connections.
 
 =item new ( [ARGS] )
 
-Creates a new object.  Accepts arguments in key => value form.  Valid arguments 
-are: 
+Creates a new object.  All arguments are optional and are in key => value form.
+Valid arguments are: 
 
 	LocalAddr	Local host bind address
         LocalPort	Local bind port
         Detach          Boolean to run in background.  Default = 1
         LogFile         Path to log file
         Debug		1 = extra information, 2 = raw socket data
+        CacheDBH	Database handle, see below
+        Socket		Socket handle for processing IMAP commands
+                        
 
 =item procimap ( $socket_handle )
 
@@ -660,6 +662,10 @@ and Inbox only.  The module achieves this by emailing the message
 to the Gmail account.  Therefore, the append procedure may be slow
 and the message will initially be marked unread.
 
+To persistently cache Gmail messages, a database handle can be given as 
+an argument.  Using the Tie::RDBM module, GMail::IMAPD will automatically 
+create a table for each user and store messages in this table.   
+
 GMail::IMAPD is not fully IMAP4 compliant and has just enough
 functionality to get by. It has been tested with Firefox, Outlook,
 Outlook Express, and mail2web.com.
@@ -677,21 +683,19 @@ module or I'm not sure how to do it with the module.
 
 Access to large folders is slow.  To fetch simple header information 
 requested by most IMAP clients (FLAGS, INTERNALDATE, etc) requires 
-GMail::IMAPD to download the entire message.  Persistent message caching 
-will help and is on the todo list.
+GMail::IMAPD to download the entire message.  Using persistent message caching 
+with CacheDBH helps alleviate this problem.
 
 To work, GMail::IMAPD currently bundles and uses patched versions of 
 L<UserAgent> and L<Mail::Webmail::Gmail>.  One line of UserAgent was changed to
 forward cookies to Gmail.  And, only a patched version of Mail::Webmail::Gmail 
-from the author's website works with the current version of Gmail.  
-Future versions of GMail::IMAPD will remove these patched modules when the 
-actual modules are updated.  For more information on this topic, 
-see http://code.mincus.com/?p=2.
+works with the current version of Gmail.  Future versions of GMail::IMAPD will 
+remove these patched modules when the actual modules are updated.  
 
 
 =head1 BUGS
 
-If a message is replied-to via the gmail web interface, and the reply is 
+If a message is replied-to via the gmail web interface and the reply is 
 discarded, the message becomes unavaible to interfaces such as
 Mail::Webmail::Gmail.  I believe this is a Google bug.
 
